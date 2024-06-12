@@ -53,6 +53,7 @@ class MultiIterLoader:
             return ld.__next__(it)
         elif isinstance(ld, IterLoader):
             return next(ld)
+        return next(ld)
 
 
 class PrefetchLoader(object):
@@ -67,6 +68,24 @@ class PrefetchLoader(object):
         self.loader = loader
         self.stream = torch.cuda.Stream()
         self.batch = None
+        # self.loader_it = None
+
+    #def __iter__(self):
+    #    self.loader_it = iter(self.loader)
+    #    self.preload()
+    #    while self.batch is None and self.loader_it is not None:
+    #        self.preload()
+    #    return self
+
+    def __next__(self, it):
+        torch.cuda.current_stream().wait_stream(self.stream)
+        batch = self.batch
+        if batch is not None:
+           record_cuda_stream(batch)
+        self.preload(it)
+        #if self.batch is None:
+        #   raise StopIteration
+        return batch
 
     def __iter__(self):
         loader_it = iter(self.loader)
@@ -91,7 +110,11 @@ class PrefetchLoader(object):
             self.batch = next(it)
         except StopIteration:
             self.batch = None
+            #self.loader_it = None
             return
+        if self.batch is not None:
+           with torch.cuda.stream(self.stream):
+               self.batch = move_to_cuda(self.batch)
         # if record_stream() doesn't work, another option is to make sure
         # device inputs are created on the main stream.
         # self.next_input_gpu = torch.empty_like(self.next_input,
@@ -101,8 +124,8 @@ class PrefetchLoader(object):
         # Need to make sure the memory allocated for next_* is not still in use
         # by the main stream at the time we start copying to next_*:
         # self.stream.wait_stream(torch.cuda.current_stream())
-        with torch.cuda.stream(self.stream):
-            self.batch = move_to_cuda(self.batch)
+        #with torch.cuda.stream(self.stream):
+            #self.batch = move_to_cuda(self.batch)
             # more code for the alternative if record_stream() doesn't work:
             # copy_ will record the use of the pinned source tensor in this
             # side stream.
@@ -110,15 +133,19 @@ class PrefetchLoader(object):
             # self.next_target_gpu.copy_(self.next_target, non_blocking=True)
             # self.next_input = self.next_input_gpu
             # self.next_target = self.next_target_gpu
-
-    def __next__(self, it):
+    """
+    def __next__(self):
         torch.cuda.current_stream().wait_stream(self.stream)
         batch = self.batch
         if batch is not None:
             record_cuda_stream(batch)
-        self.preload(it)
+        self.preload()
+        while self.batch is None and self.loader_it is not None:
+            self.preload()
+        if batch is None:
+            raise StopIteration
         return batch
-
+    """
     def __getattr__(self, name):
         method = self.loader.__getattribute__(name)
         return method

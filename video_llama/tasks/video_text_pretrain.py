@@ -31,22 +31,24 @@ class VideoTextPretrainTask(BaseTask):
         print_freq = 1
 
         results = []
-
-        i = 0
-        for samples in metric_logger.log_every(data_loader, print_freq, header):
-            samples = next(data_loader)
-            samples = prepare_sample(samples, cuda_enabled=cuda_enabled)
-
+        
+        iter_count = 0
+        for data in data_loader:
+            print(f"VALID STEP COUNT : {iter_count}")
+            if data == None:
+               continue
+            samples = prepare_sample(data, cuda_enabled=cuda_enabled)
             eval_output, metric_dict = self.valid_step(model=model, samples=samples)
-
+            # print("Input Ids: ", samples["input_ids"][0])
+            # print("Labels: ", samples["labels"][0])
             try:
                 results.extend(eval_output)
             except TypeError:
                 results.append(eval_output)
 
-            i += 1
-            if i >= 2:
-                break
+            iter_count += 1
+            if iter_count == 15:
+               break
 
         # Presumed to be code for DDP. But code output error when it is uncommented. Refer to notion page.
         # if is_dist_avail_and_initialized():

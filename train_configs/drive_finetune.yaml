@@ -47,10 +47,10 @@ datasets:
     build_info:
       train:
         anno_dir: ./data/BDD_train_data/BDD-instruct-train.json # Reaoning/Description Only : BDD-Instruct-reasoning.json/BDD-Instruct-desc.json
-        videos_dir: ./data/BDD_train_data/videos/
+        videos_dir: /input/BDD-X-Videos/
       val:
         anno_dir: ./data/BDD_train_data/BDD-instruct-val.json # Reaoning/Description Only : BDD-Instruct-reasoning.json/BDD-Instruct-desc.json
-        videos_dir: ./data/BDD_train_data/videos/
+        videos_dir: /input/BDD-X-Videos/
     vis_processor:
       train:
         name: "alpro_video_train"
@@ -202,15 +202,15 @@ run:
   warmup_lr: 1e-6
 
   weight_decay: 0.05
-  max_epoch: 5
+  max_epoch: 3
   iters_per_epoch: 1000
-  batch_size_train: 2
-  batch_size_eval: 2
+  batch_size_train: 4
+  batch_size_eval: 4
   num_workers: 4
   warmup_steps: 1000
 
   seed: 42
-  output_dir: "./output/"
+  output_dir: "/output/"
 
   amp: True
   resume_ckpt_path: null
@@ -219,7 +219,8 @@ run:
   train_splits: ["train"]
   # valid_splits: ["val"]
 
-  device: "mps:0"
-  world_size: 1
+  device: "cuda"
+  world_size: 2
   dist_url: "env://"
-  distributed: False
+  distributed: True
+

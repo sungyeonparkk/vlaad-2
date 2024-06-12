@@ -92,16 +92,18 @@ def upload_imgorvideo(gr_video, gr_img, text_input, chat_state,chatbot):
     elif gr_img is not None and gr_video is None:
         print(gr_img)
         chatbot = chatbot + [((gr_img,), None)]
-        chat_state.system =  "You are able to understand the visual content that the user provides. Follow the instructions carefully and explain your answers in detail."
+        chat_state.system =  "As an AI visual assistant of a driver, you are watching the driving scene from the perspective of ego-car. Follow the given instruction of the driver."
         img_list = []
         llm_message = chat.upload_img(gr_img, chat_state, img_list)
         return gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=True, placeholder='Type and press Enter'), gr.update(value="Start Chatting", interactive=False), chat_state, img_list,chatbot
     elif gr_video is not None and gr_img is None:
+        print("Uploading video...")
         print(gr_video)
         chatbot = chatbot + [((gr_video,), None)]
-        chat_state.system =  "You are able to understand the visual content that the user provides. Follow the instructions carefully and explain your answers in detail."
+        chat_state.system =  "As an AI visual assistant of a driver, you are watching the driving scene from the perspective of ego-car. Follow the given instruction of the driver."
         img_list = []
         llm_message = chat.upload_video_without_audio(gr_video, chat_state, img_list)
+        print("Video uploading completed")
         return gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=True, placeholder='Type and press Enter'), gr.update(value="Start Chatting", interactive=False), chat_state, img_list,chatbot
     else:
         # img_list = []
@@ -241,7 +243,7 @@ with gr.Blocks() as demo:
     )
     clear.click(gradio_reset, [chat_state, img_list], [chatbot, video, image, text_input, upload_button, chat_state, img_list], queue=False)
     
-demo.launch(share=False, enable_queue=True)
+demo.launch(share=True, enable_queue=True)
 
 
 # %%

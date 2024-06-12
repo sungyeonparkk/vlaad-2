@@ -12,8 +12,8 @@ model:
   # If you want use LLaMA-2-chat,
   # some ckpts could be download from our provided huggingface repo
   # i.e.  https://huggingface.co/DAMO-NLP-SG/Video-LLaMA-2-13B-Finetuned
-  llama_model: /root/ckpt/llama-2-7b-chat-hf # "ckpt/vicuna-13b/" or "ckpt/vicuna-7b/" or "ckpt/llama-2-7b-chat-hf"  or "ckpt/llama-2-13b-chat-hf"
-  ckpt: /root/vision-assistant-for-driving/video_llama/output/videollama_stage2_finetune/20230912214/checkpoint_2.pth   # you can use our pretrained ckpt from https://huggingface.co/DAMO-NLP-SG/Video-LLaMA-2-13B-Pretrained/
+  llama_model: /input/ckpt/llama-2-7b-chat-hf # "ckpt/vicuna-13b/" or "ckpt/vicuna-7b/" or "ckpt/llama-2-7b-chat-hf"  or "ckpt/llama-2-13b-chat-hf"
+  ckpt: /output/20240516045/checkpoint_10.pth   # you can use our pretrained ckpt from https://huggingface.co/DAMO-NLP-SG/Video-LLaMA-2-13B-Pretrained/
 
   equip_audio_branch: False  # whether equips the audio branch
   fusion_head_layers: 2
@@ -26,7 +26,7 @@ datasets:
     vis_processor:
       train:
         name: "alpro_video_eval"
-        n_frms: 8
+        n_frms: 5
         image_size: 224
     text_processor:
       train:

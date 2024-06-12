@@ -181,6 +181,7 @@ class Chat:
             conv.messages[-1][1] = ' '.join([conv.messages[-1][1], text])
         else:
             conv.append_message(conv.roles[0], text)
+        return conv
 
     def answer(self, conv, img_list, max_new_tokens=300, num_beams=1, min_length=1, top_p=0.9,
                repetition_penalty=1.0, length_penalty=1, temperature=1.0, max_length=2000):
@@ -301,8 +302,9 @@ class Chat:
         image_emb, _ = self.model.encode_videoQformer_visual(video)
         img_list.append(image_emb)
         conv.append_message(conv.roles[0], "<Video><ImageHere></Video> "+ msg)
-        return "Received."
-
+        # return "Received."
+        return img_list, conv
+        
     def upload_img(self, image, conv, img_list):
 
         msg = ""

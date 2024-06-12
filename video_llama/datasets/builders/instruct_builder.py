@@ -12,7 +12,7 @@ from video_llama.datasets.datasets.bdd_instruct_dataset import BDD_Instruct_Data
 from video_llama.datasets.datasets.had_instruct_dataset import HAD_Instruct_Dataset
 from video_llama.datasets.datasets.maplm_instruct_dataset import MAPLM_Instruct_Dataset
 from video_llama.datasets.datasets.drama_instruct_dataset import DRAMA_Instruct_Dataset
-
+from video_llama.datasets.datasets.nuscenes_instruct_dataset import NUSCENES_Instruct_Dataset
 
 @registry.register_builder("instruct")
 class Instruct_Builder(BaseDatasetBuilder):
@@ -30,7 +30,7 @@ class Instruct_Builder(BaseDatasetBuilder):
         self.build_processors()
         datasets = dict()
 
-        for split in ["train", "val"]:
+        for split in ["train"]:
             build_info = self.config.build_info[split]
             dataset_cls = self.train_dataset_cls
             if self.config.num_video_query_token:
@@ -116,4 +116,13 @@ class DRAMAInstruct_Builder(Instruct_Builder):
 
     DATASET_CONFIG_DICT = {
         "default": "configs/datasets/instruct/drama_instruct.yaml",
+    }
+
+
+@registry.register_builder("nuscenes_instruct")
+class NUSCENESInstruct_Builder(Instruct_Builder):
+    train_dataset_cls = NUSCENES_Instruct_Dataset
+
+    DATASET_CONFIG_DICT = {
+        "default": "configs/datasets/instruct/nuscenes_instruct.yaml",
     }

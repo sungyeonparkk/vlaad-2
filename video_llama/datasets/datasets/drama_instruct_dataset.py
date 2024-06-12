@@ -92,6 +92,8 @@ class DRAMA_Instruct_Dataset(BaseDataset):
         num_retries = 10  # skip error videos
         for _ in range(num_retries):
             try:
+                if isinstance(index, str):
+                   raise TypeError(f"String Index Passed!: {index}")
                 sample = self.annotation[index]
                 video_path = self._get_video_path(sample)
                 conversation_list = sample["QA"]
@@ -127,6 +129,12 @@ class DRAMA_Instruct_Dataset(BaseDataset):
                 )
                 # image exist in the data
                 data_dict["image"] = video
+           
+            except TypeError as e:
+                print(e)
+                index = random.randint(0, len(self) - 1)
+                continue
+
             except Exception as e:
                 print(
                     f"Failed to load examples with video: {video_path}. "
@@ -213,7 +221,6 @@ def preprocess_multimodal(
         + msg
         + conversation_list[0]["q"]
     )
-    print(conversation_list)
     return [conversation_list]
 
 

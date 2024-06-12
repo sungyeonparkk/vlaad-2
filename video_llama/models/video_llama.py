@@ -21,6 +21,7 @@ from video_llama.models.ImageBind.models.imagebind_model import (
     ModalityType,
 )
 from video_llama.models.ImageBind.models import imagebind_model
+from video_llama.models import BEVformer
 
 from pycocotools.coco import COCO
 from pycocoevalcap.eval import COCOEvalCap
@@ -253,9 +254,9 @@ class VideoLLAMA(Blip2Base):
             (
                 self.audio_encoder,
                 self.audio_hidden_size,
-            ) = imagebind_model.imagebind_huge()
+            ) = BEVformer.bev_former()
             self.audio_encoder.load_state_dict(
-                torch.load("{}/imagebind_huge.pth".format(imagebind_ckpt_path))
+                torch.load("{}/bevformer_r101_dcn_24ep.pth".format(imagebind_ckpt_path))
             )
             # free vision encoder
             for name, param in self.audio_encoder.named_parameters():
@@ -398,13 +399,13 @@ class VideoLLAMA(Blip2Base):
             return img_embeds, atts_img
 
     #  input audio shape [b t c h w]
-    def encode_audioQformer(self, audio, modality_type=ModalityType.AUDIO):
+    def encode_audioQformer(self, imgs, imgs_meta):
         device = audio.device
         with self.maybe_autocast():
             (
-                audio_feature,
-                audio_imagebind_finalout,
-            ) = self.audio_encoder.get_audio_feature(audio, modality_type=modality_type)
+                bev_embeds,
+                bev_pos,
+            ) = self.audio_encoder.get_bevs(img, imgs_meta)
             batch_size, time_length = audio.size()[:2]
 
             position_ids = torch.arange(time_length, dtype=torch.long, device=device)
@@ -412,7 +413,7 @@ class VideoLLAMA(Blip2Base):
 
             audio_position_embeddings = self.audio_position_embedding(position_ids)
             audio_imagebind_finalout = (
-                audio_imagebind_finalout + audio_position_embeddings
+                bev_embeds + audio_position_embeddings
             )
 
             audio_query_tokens = self.audio_query_tokens.expand(
@@ -511,11 +512,21 @@ class VideoLLAMA(Blip2Base):
 
         return inputs_llama, atts_llama
 
-    def forward(self, samples):
+    def forward(self, samples, data_splits="train"):
         if "conv_type" in samples.keys() and samples["conv_type"] == "multi":
             im_patch_token_id = self.IMAGE_PATCH_TOKEN_ID
             image = samples["images"]
             input_ids = samples["input_ids"]
+            
+            def pad_tensor(t, max_frames):
+                padding_size = max_frames - t.size(1)
+                return nn.functional.pad(t, (0, 0, 0, 0, 0, padding_size))
+
+            if isinstance(image, list):
+                max_frames = max(t.size(1) for t in image)
+                padded_tensors = [pad_tensor(t, max_frames) for t in image]
+                image = torch.stack(padded_tensors)
+
             if len(image.size()) == 4:
                 time = 1
                 image = einops.repeat(image, "b c h w -> b c t h w", t=time)
@@ -585,39 +596,51 @@ class VideoLLAMA(Blip2Base):
             output_dict = dict()
             output_dict["loss"] = loss
             
-            # TODO : output_dict["metric"] = metric 추가하기
-            pred = torch.argmax(outputs.logits, dim=-1)
-            truth = samples["labels"]
-            
-            reference_json = dict()
-            reference_json["images"] = []
-            reference_json["annotations"] = []
-            generated_json = []
-            
-            for i in range(samples["labels"].shape[0]):
-                truth_i = truth[i]
-                truth_i = truth_i[truth_i != -100]
-                pred_i = pred[i]
-                pred_i = pred_i[pred_i != -100]
-            
-                reference_text = self.llama_tokenizer.decode(truth_i.tolist())
-                generated_text = self.llama_tokenizer.decode(pred_i.tolist())
-                
-                reference_json["images"].append({"id": str(i)})
-                reference_json["annotations"].append({"image_id": str(i), "id": str(i), "caption": reference_text})
-                generated_json.append({"image_id": str(i), "caption": generated_text})
-            with open("reference_json.json", 'w') as outfile:
-                json.dump(reference_json, outfile)
-            with open("generated_json.json", 'w') as outfile:
-                json.dump(generated_json, outfile)
-                
-            coco = COCO("reference_json.json")
-            coco_result = coco.loadRes("generated_json.json")
-            coco_eval = COCOEvalCap(coco, coco_result)
-            coco_eval.evaluate()
-            
-            for metric, score in coco_eval.eval.items():
-                output_dict[metric] = score
+            if data_splits == "val":
+              # TODO : output_dict["metric"] = metric 추가하기
+              pred = torch.argmax(outputs.logits, dim=-1)
+              truth = samples["labels"]
+
+              reference_json = {"images": [], "annotations": []}
+              generated_json = []
+              
+              for i in range(samples["labels"].shape[0]):
+                  filtered_pred_tokens = [token.item() for token, mask in zip(pred[i], attention_mask[i]) if mask == 1 and token != -100]
+                  filtered_ref_tokens = [token.item() for token, mask in zip(truth[i], attention_mask[i]) if mask ==1 and token != -100]
+
+                  generated_text = self.llama_tokenizer.decode(filtered_pred_tokens, add_special_tokens=False)
+                  reference_text = self.llama_tokenizer.decode(filtered_ref_tokens, add_special_tokens=False)
+                  
+                  if "###Assistant:" in generated_text:
+                     generated_text = generated_text.split('###Assistant:')[1]
+                  if "###Firstistant:" in generated_text:
+                     generated_text = generated_text.split("###Firstistant:")[1]
+                  if "###H" in generated_text:
+                     generated_text = generated_text.split('###H')[0].strip()
+                  reference_text = reference_text.split('######Assistant:')[1]
+                  reference_text = reference_text.split('###')[0].strip()
+
+                  reference_json["images"].append({"id": str(i)})
+                  reference_json["annotations"].append({"image_id": str(i), "id": str(i), "caption": reference_text})
+                  generated_json.append({"image_id": str(i), "caption": generated_text})
+                  print("Image id: ", str(i))
+                  print("Reference: ", reference_text)
+                  print("Generated: ", generated_text)
+
+              # with open("reference_json.json", 'w') as outfile:
+              #     json.dump(reference_json, outfile)
+              # with open("generated_json.json", 'w') as outfile:
+              #    json.dump(generated_json, outfile)
+                  
+              coco = COCO()
+              coco.dataset = reference_json
+              coco.createIndex()
+              coco_result = coco.loadRes(generated_json)
+              coco_eval = COCOEvalCap(coco, coco_result)
+              coco_eval.evaluate()
+              
+              for metric, score in coco_eval.eval.items():
+                  output_dict[metric] = score
             
             return output_dict
         else:
@@ -697,34 +720,38 @@ class VideoLLAMA(Blip2Base):
             output_dict = dict()
             output_dict["loss"] = loss
             
-            # TODO : output_dict["metric"] = metric 추가하기
-            pred = torch.argmax(outputs.logits, dim=-1)
-            truth = samples["labels"]
-            
-            reference_json = dict()
-            reference_json["images"] = []
-            reference_json["annotations"] = []
-            generated_json = []
-            for i in range(samples["labels"].shape[0]):
-                reference_text = self.llama_tokenizer.convert_ids_to_tokens(truth[i].tolist())
-                generated_text = self.llama_tokenizer.convert_ids_to_tokens(pred[i].tolist())
-                
-                reference_json["images"].append({"id": str(i)})
-                reference_json["annotations"].append({"image_id": str(i), "id": str(i), "caption": reference_text})
-                generated_json.append({"image_id": str(i), "caption": generated_text})
-            with open("reference_json.json", 'w') as outfile:
-                json.dump(reference_json, outfile)
-            with open("generated_json.json", 'w') as outfile:
-                json.dump(generated_json, outfile)
-                
-            coco = COCO("reference_json.json")
-            coco_result = coco.loadRes("generated_json.json")
-            coco_eval = COCOEvalCap(coco, coco_result)
-            coco_eval.evaluate()
-            
-            for metric, score in coco_eval.eval.items():
-                output_dict[metric] = score
+            if data_splits == "val":
+              # TODO : output_dict["metric"] = metric 추가하기
+              pred = torch.argmax(outputs.logits, dim=-1)
+              truth = samples["labels"]
+              
+              reference_json = {"images": [], "annotations": []}
+              generated_json = []
 
+              for i in range(samples["labels"].shape[0]):
+                  filtered_pred_tokens = [token.item() for token, mask in zip(pred[i], attention_mask[i]) if mask == 1]
+                  filtered_ref_tokens = [token.item() for token, mask in zip(truth[i], attention_mask[i]) if mask == 1]
+
+                  generated_text = self.llama_tokenizer.decode(filtered_pred_tokens, skip_special_tokens=True)
+                  reference_text = self.llama_tokenizer.decode(filtered_ref_tokens, skip_special_tokens=True)
+                  
+                  reference_json["images"].append({"id": str(i)})
+                  reference_json["annotations"].append({"image_id": str(i), "id": str(i), "caption": reference_text})
+                  generated_json.append({"image_id": str(i), "caption": generated_text})
+              # with open("reference_json.json", 'w') as outfile:
+              #     json.dump(reference_json, outfile)
+              # with open("generated_json.json", 'w') as outfile:
+              #    json.dump(generated_json, outfile)
+                  
+              coco = COCO()
+              coco.dataset = reference_json
+              coco.createIndex()
+              coco_result = coco.loadRes(generated_json.json)
+              coco_eval = COCOEvalCap(coco, coco_result)
+              coco_eval.evaluate()
+              
+              for metric, score in coco_eval.eval.items():
+                  output_dict[metric] = score
         return output_dict
 
     @classmethod

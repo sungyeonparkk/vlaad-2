@@ -250,10 +250,11 @@ class RunnerBase:
 
             # create dataloaders
             split_names = sorted(self.datasets.keys())
-
+            #print("Train keys:", self.datasets["train"][0].__getitem__(0))
+            #print("Validation keys: ", self.datasets["val"][0].__getitem__(4))
             datasets = [self.datasets[split] for split in split_names]
             is_trains = [split in self.train_splits for split in split_names]
-
+            # is_trains = [True, True]
             batch_sizes = [
                 self.config.run_cfg.batch_size_train
                 if split == "train"
@@ -261,13 +262,15 @@ class RunnerBase:
                 for split in split_names
             ]
 
+
             collate_fns = []
             for dataset in datasets:
                 if isinstance(dataset, tuple) or isinstance(dataset, list):
                     collate_fns.append([getattr(d, "collater", None) for d in dataset])
                 else:
                     collate_fns.append(getattr(dataset, "collater", None))
-
+            #print("Validation keys:", datasets[-1])
+            #print("Validation length:",len(datasets[-1]))
             dataloaders = self.create_loaders(
                 datasets=datasets,
                 num_workers=self.config.run_cfg.num_workers,
@@ -278,7 +281,9 @@ class RunnerBase:
 
             self._dataloaders = {k: v for k, v in zip(split_names, dataloaders)}
             print(self._dataloaders.keys())
-
+            #for i, data in enumerate(self._dataloaders["val"]):
+            #    if i == 1 or i == 5:
+            #       print(data["input_ids"][0])
         return self._dataloaders
 
     @property
@@ -395,8 +400,8 @@ class RunnerBase:
                     val_log, val_metric_dict = self.eval_epoch(
                         split_name=split_name, cur_epoch=cur_epoch
                     )
-                    print(val_log)
-                    wandb.log(val_metric_dict)
+                    val_log = val_metric_dict.copy()
+                    # wandb.log(val_metric_dict)
                     if val_log is not None:
                         if is_main_process():
                             assert (
@@ -409,7 +414,6 @@ class RunnerBase:
                                 self._save_checkpoint(
                                     cur_epoch, is_best=True, wandb=wandb
                                 )
-
                             val_log.update({"best_epoch": best_epoch})
                             for k, v in val_log.items():
                                 if type(v) == list:
@@ -496,7 +500,6 @@ class RunnerBase:
         """
         data_loader = self.dataloaders.get(split_name, None)
         assert data_loader, "data_loader for split {} is None.".format(split_name)
-
         # TODO In validation, you need to compute loss as well as metrics
         # TODO consider moving to model.before_evaluation()
         model = self.unwrap_dist_model(self.model)
@@ -512,8 +515,9 @@ class RunnerBase:
         
         # Pick which metric to use in validation
         agg_metrics = -torch.mean(torch.stack(results)) # Default option
-        agg_metrics = metric_dict["CIDEr"]              # Change key to change metric. Refer (https://github.com/Aldenhovel/bleu-rouge-meteor-cider-spice-eval4imagecaption)
-        
+        agg_metrics = metric_dict["Bleu_4"]              # Change key to change metric. Refer (https://github.com/Aldenhovel/bleu-rouge-meteor-cider-spice-eval4imagecaption)
+        metric_dict.update({"agg_metrics":agg_metrics})
+
         if results is not None:
             print("RETURN========================================")
             return self.task.after_evaluation(
@@ -585,19 +589,21 @@ class RunnerBase:
                 )
                 loader = PrefetchLoader(loader)
 
-                if is_train:
-                    loader = IterLoader(loader, use_distributed=self.use_distributed)
-
+                # if is_train:
+                loader = IterLoader(loader, use_distributed=self.use_distributed)
             return loader
 
         loaders = []
-
         for dataset, bsz, is_train, collate_fn in zip(
             datasets, batch_sizes, is_trains, collate_fns
         ):
-            if isinstance(dataset, list) or isinstance(dataset, tuple):
+            if (isinstance(dataset, list) or isinstance(dataset, tuple)):
                 if hasattr(dataset[0], "sample_ratio") and dataset_ratios is None:
                     dataset_ratios = [d.sample_ratio for d in dataset]
+                if is_train:
+                   print("======TRAIN=====")
+                else:
+                   print("======VAL=======")
                 loader = MultiIterLoader(
                     loaders=[
                         _create_loader(d, num_workers, bsz, is_train, collate_fn[i])
@@ -606,7 +612,7 @@ class RunnerBase:
                     ratios=dataset_ratios,
                 )
             else:
-                loader = _create_loader(dataset, num_workers, bsz, is_train, collate_fn)
+                loader = _create_loader(dataset, num_workers, bsz, is_train, collate_fn[0])
 
             loaders.append(loader)
 
@@ -635,7 +641,7 @@ class RunnerBase:
         }
         save_to = os.path.join(
             self.output_dir,
-            "checkpoint_{}.pth".format("best" if is_best else cur_epoch),
+            "checkpoint_{}.pth".format(str(cur_epoch)),
         )
         logging.info("Saving checkpoint at epoch {} to {}.".format(cur_epoch, save_to))
         torch.save(save_obj, save_to)
